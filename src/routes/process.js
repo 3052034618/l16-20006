@@ -22,10 +22,10 @@ function findOriginalFile(imageId) {
   return null;
 }
 
-router.get('/:id', async (req, res, next) => {
+async function handleProcessRequest(req, res, next, extraParams = {}) {
   try {
     const { id: imageId } = req.params;
-    const params = req.query;
+    const params = { ...req.query, ...extraParams };
 
     const originalFilePath = findOriginalFile(imageId);
     if (!originalFilePath) {
@@ -35,7 +35,9 @@ router.get('/:id', async (req, res, next) => {
       });
     }
 
-    const validationErrors = processor.validateParams(params);
+    const { params: effectiveParams, presetName } = processor.applyPreset(params);
+
+    const validationErrors = processor.validateParams(effectiveParams);
     if (validationErrors.length > 0) {
       return res.status(400).json({
         success: false,
@@ -44,8 +46,8 @@ router.get('/:id', async (req, res, next) => {
     }
 
     const originalFormat = await processor.getImageFormat(originalFilePath);
-    const outputFormat = processor.parseOutputFormat(params, originalFormat);
-    const cacheFileInfo = cacheKeyUtil.getCacheFilePath(imageId, params, originalFilePath, outputFormat);
+    const outputFormat = processor.parseOutputFormat(effectiveParams, originalFormat);
+    const cacheFileInfo = cacheKeyUtil.getCacheFilePath(imageId, effectiveParams, originalFilePath, outputFormat);
 
     const cacheKeyHash = cacheFileInfo.key;
     const cacheFilePath = cacheFileInfo.fullPath;
@@ -66,6 +68,10 @@ router.get('/:id', async (req, res, next) => {
     res.setHeader('X-Cache-Source', result.source);
     res.setHeader('X-Cache-Hit', result.fromCache ? 'true' : 'false');
 
+    if (presetName) {
+      res.setHeader('X-Preset', presetName);
+    }
+
     if (result.fromCache) {
       res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
     } else {
@@ -82,6 +88,10 @@ router.get('/:id', async (req, res, next) => {
     }
     next(err);
   }
+}
+
+router.get('/:id/thumbnail', (req, res, next) => {
+  handleProcessRequest(req, res, next, { preset: 'thumbnail' });
 });
 
 router.get('/:id/info', async (req, res, next) => {
@@ -119,13 +129,18 @@ router.get('/:id/info', async (req, res, next) => {
   }
 });
 
-router.get('/:id/thumbnail', async (req, res, next) => {
-  req.query.thumb = '1';
-  if (!req.query.w && !req.query.width) {
-    req.query.w = '200';
-    req.query.h = '200';
-  }
-  next();
+router.get('/:id/presets', (req, res) => {
+  res.json({
+    success: true,
+    data: {
+      presets: Object.keys(processor.PRESETS),
+      details: processor.PRESETS
+    }
+  });
+});
+
+router.get('/:id', (req, res, next) => {
+  handleProcessRequest(req, res, next);
 });
 
 module.exports = router;

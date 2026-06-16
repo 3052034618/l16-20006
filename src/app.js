@@ -2,6 +2,7 @@ const express = require('express');
 const config = require('./config');
 const imagesRoutes = require('./routes/images');
 const processRoutes = require('./routes/process');
+const cacheAdminRoutes = require('./routes/cacheAdmin');
 
 const app = express();
 
@@ -25,6 +26,7 @@ app.get('/health', (req, res) => {
 
 app.use('/images', imagesRoutes);
 app.use('/process', processRoutes);
+app.use('/cache/admin', cacheAdminRoutes);
 
 app.use((req, res) => {
   res.status(404).json({
@@ -35,9 +37,14 @@ app.use((req, res) => {
       getOriginal: 'GET /images/:id',
       deleteImage: 'DELETE /images/:id',
       updateImage: 'PUT /images/:id',
-      process: 'GET /process/:id?w=100&h=100&f=webp',
+      process: 'GET /process/:id?w=100&h=100&f=webp&preset=medium',
       processThumbnail: 'GET /process/:id/thumbnail',
-      imageInfo: 'GET /process/:id/info'
+      imageInfo: 'GET /process/:id/info',
+      presets: 'GET /process/:id/presets',
+      cacheStats: 'GET /cache/admin/stats',
+      clearCache: 'POST /cache/admin/clear',
+      clearImageCache: 'DELETE /cache/admin/image/:id',
+      imageCacheInfo: 'GET /cache/admin/image/:id'
     }
   });
 });

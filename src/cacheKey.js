@@ -26,6 +26,13 @@ const PROCESSING_PARAMS = [
   'bw'
 ];
 
+function normalizeFormat(fmt) {
+  if (!fmt) return null;
+  let f = String(fmt).toLowerCase().trim();
+  if (f === 'jpg') f = 'jpeg';
+  return f;
+}
+
 function normalizeParams(params) {
   const normalized = {};
 
@@ -36,7 +43,8 @@ function normalizeParams(params) {
   if (params.fit) normalized.fit = String(params.fit);
   if (params.crop) normalized.crop = String(params.crop);
   if (params.q || params.quality) normalized.q = parseInt(params.q || params.quality);
-  if (params.f || params.format) normalized.f = String(params.f || params.format);
+  const fmt = normalizeFormat(params.f || params.format);
+  if (fmt) normalized.f = fmt;
   if (params.watermark || params.wm) normalized.watermark = '1';
   if (params.wmText) normalized.wmText = String(params.wmText);
   if (params.wmSize) normalized.wmSize = parseInt(params.wmSize);

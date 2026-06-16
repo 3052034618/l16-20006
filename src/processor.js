@@ -8,6 +8,88 @@ const VALID_POSITIONS = [
   'south', 'southwest', 'west', 'northwest', 'center'
 ];
 
+const PRESETS = {
+  small: {
+    w: 320,
+    h: 240,
+    fit: 'cover',
+    q: 75,
+    f: 'jpeg'
+  },
+  medium: {
+    w: 800,
+    h: 600,
+    fit: 'cover',
+    q: 85,
+    f: 'jpeg'
+  },
+  large: {
+    w: 1920,
+    h: 1080,
+    fit: 'inside',
+    q: 90,
+    f: 'jpeg'
+  },
+  avatar: {
+    w: 200,
+    h: 200,
+    fit: 'cover',
+    crop: 'center',
+    q: 85,
+    f: 'jpeg'
+  },
+  banner: {
+    w: 1200,
+    h: 300,
+    fit: 'cover',
+    crop: 'center',
+    q: 85,
+    f: 'jpeg'
+  },
+  thumbnail: {
+    w: 200,
+    h: 200,
+    fit: 'cover',
+    q: 80,
+    f: 'jpeg'
+  },
+  'webp-small': {
+    w: 320,
+    h: 240,
+    fit: 'cover',
+    q: 70,
+    f: 'webp'
+  },
+  'webp-medium': {
+    w: 800,
+    h: 600,
+    fit: 'cover',
+    q: 80,
+    f: 'webp'
+  }
+};
+
+function applyPreset(params) {
+  if (!params || !params.preset) {
+    return { params, presetName: null };
+  }
+
+  const presetName = String(params.preset).toLowerCase().trim();
+  const preset = PRESETS[presetName];
+  if (!preset) {
+    return { params, presetName: null };
+  }
+
+  const merged = { ...preset };
+  for (const [key, value] of Object.entries(params)) {
+    if (key !== 'preset' && value !== undefined && value !== null && value !== '') {
+      merged[key] = value;
+    }
+  }
+
+  return { params: merged, presetName };
+}
+
 function validateParams(params) {
   const errors = [];
 
@@ -143,18 +225,45 @@ function applyQuality(sharpInstance, params, format) {
   }
 }
 
+function escapeXml(str) {
+  if (str == null) return '';
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&apos;');
+}
+
+function measureTextWidth(text, fontSize) {
+  const charWidth = fontSize * 0.6;
+  let width = 0;
+  for (const ch of String(text)) {
+    if (/[\u4e00-\u9fa5]/.test(ch)) {
+      width += fontSize;
+    } else {
+      width += charWidth;
+    }
+  }
+  return Math.ceil(width) + 20;
+}
+
 async function applyWatermark(imageBuffer, params) {
   if (!params.watermark && !params.wm) {
     return imageBuffer;
   }
 
-  const text = params.wmText || config.watermark.defaultText;
+  const rawText = params.wmText || config.watermark.defaultText;
+  const text = escapeXml(rawText);
   const fontSize = parseInt(params.wmSize) || config.watermark.defaultFontSize;
   const opacity = parseFloat(params.wmOpacity) || config.watermark.defaultOpacity;
   const position = params.wmPosition || config.watermark.defaultPosition;
 
+  const svgWidth = Math.max(measureTextWidth(rawText, fontSize), 200);
+  const svgHeight = Math.ceil(fontSize * 1.8);
+
   const svgWatermark = `
-    <svg xmlns="http://www.w3.org/2000/svg" width="800" height="200">
+    <svg xmlns="http://www.w3.org/2000/svg" width="${svgWidth}" height="${svgHeight}">
       <text x="50%" y="50%" 
             font-family="Arial, sans-serif" 
             font-size="${fontSize}" 
@@ -190,7 +299,9 @@ async function applyWatermark(imageBuffer, params) {
 }
 
 async function processImage(originalFilePath, params) {
-  const validationErrors = validateParams(params);
+  const { params: effectiveParams, presetName } = applyPreset(params);
+
+  const validationErrors = validateParams(effectiveParams);
   if (validationErrors.length > 0) {
     throw new Error(`Invalid parameters: ${validationErrors.join('; ')}`);
   }
@@ -204,21 +315,22 @@ async function processImage(originalFilePath, params) {
   });
 
   let instance = pipeline;
-  instance = applyResize(instance, params);
-  instance = applyTransforms(instance, params);
+  instance = applyResize(instance, effectiveParams);
+  instance = applyTransforms(instance, effectiveParams);
 
   const originalFormat = await getImageFormat(originalFilePath);
-  const outputFormat = parseOutputFormat(params, originalFormat);
-  instance = applyQuality(instance, params, outputFormat);
+  const outputFormat = parseOutputFormat(effectiveParams, originalFormat);
+  instance = applyQuality(instance, effectiveParams, outputFormat);
 
   let buffer = await instance.toFormat(outputFormat).toBuffer();
 
-  buffer = await applyWatermark(buffer, params);
+  buffer = await applyWatermark(buffer, effectiveParams);
 
   return {
     buffer,
     format: outputFormat,
-    mimeType: getMimeType(outputFormat)
+    mimeType: getMimeType(outputFormat),
+    presetName
   };
 }
 
@@ -254,6 +366,8 @@ module.exports = {
   getImageFormat,
   getMimeType,
   getImageMetadata,
+  applyPreset,
+  PRESETS,
   VALID_FORMATS,
   VALID_FIT_MODES
 };

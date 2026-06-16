@@ -22,6 +22,16 @@ class ImageCache {
     this.inFlight = new Map();
     this.imageCacheIndex = new Map();
 
+    this.stats = {
+      totalHits: 0,
+      memoryHits: 0,
+      diskHits: 0,
+      misses: 0,
+      processed: 0,
+      singleFlightSaved: 0,
+      startedAt: Date.now()
+    };
+
     this._initDiskCacheCleanup();
   }
 
@@ -123,23 +133,32 @@ class ImageCache {
   async getOrProcess(cacheKeyHash, imageId, cacheFilePath, processFn) {
     const memCached = this.get(cacheKeyHash);
     if (memCached) {
+      this.stats.memoryHits++;
+      this.stats.totalHits++;
       return { data: memCached.buffer, fromCache: true, source: 'memory' };
     }
 
     if (this.inFlight.has(cacheKeyHash)) {
+      this.stats.singleFlightSaved++;
+      this.stats.totalHits++;
       return this.inFlight.get(cacheKeyHash);
     }
 
     const diskCached = this.getDisk(cacheFilePath);
     if (diskCached) {
       this.memoryCache.set(cacheKeyHash, { buffer: diskCached, timestamp: Date.now() });
+      this.stats.diskHits++;
+      this.stats.totalHits++;
       return { data: diskCached, fromCache: true, source: 'disk' };
     }
+
+    this.stats.misses++;
 
     const promise = (async () => {
       try {
         const result = await processFn();
         this.set(cacheKeyHash, result, imageId, cacheFilePath);
+        this.stats.processed++;
         return { data: result, fromCache: false, source: 'processed' };
       } finally {
         this.inFlight.delete(cacheKeyHash);
@@ -183,10 +202,116 @@ class ImageCache {
     return invalidated;
   }
 
+  getStats() {
+    const memoryItemCount = this.memoryCache.size;
+    const memorySize = this.memoryCache.calculatedSize;
+    const derivedImageCount = this._countDiskCacheFiles();
+
+    const totalRequests = this.stats.totalHits + this.stats.misses;
+    const hitRate = totalRequests > 0 ? (this.stats.totalHits / totalRequests * 100).toFixed(2) : '0.00';
+
+    return {
+      memory: {
+        itemCount: memoryItemCount,
+        sizeBytes: memorySize,
+        sizeMB: (memorySize / (1024 * 1024)).toFixed(2)
+      },
+      disk: {
+        derivedCount: derivedImageCount
+      },
+      stats: {
+        totalHits: this.stats.totalHits,
+        memoryHits: this.stats.memoryHits,
+        diskHits: this.stats.diskHits,
+        misses: this.stats.misses,
+        processed: this.stats.processed,
+        singleFlightSaved: this.stats.singleFlightSaved,
+        hitRate: `${hitRate}%`
+      },
+      uptime: {
+        seconds: Math.floor((Date.now() - this.stats.startedAt) / 1000),
+        startedAt: new Date(this.stats.startedAt).toISOString()
+      },
+      inFlight: this.inFlight.size,
+      imageIndexSize: this.imageCacheIndex.size
+    };
+  }
+
+  _countDiskCacheFiles() {
+    try {
+      const cacheDir = config.cache.dir;
+      if (!fs.existsSync(cacheDir)) return 0;
+
+      let count = 0;
+      const subDirs = fs.readdirSync(cacheDir);
+      for (const subDir of subDirs) {
+        const subDirPath = path.join(cacheDir, subDir);
+        try {
+          const stat = fs.statSync(subDirPath);
+          if (stat.isDirectory()) {
+            const files = fs.readdirSync(subDirPath);
+            count += files.length;
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+      return count;
+    } catch (e) {
+      return 0;
+    }
+  }
+
   clearAll() {
     this.memoryCache.clear();
     this.inFlight.clear();
     this.imageCacheIndex.clear();
+
+    this._clearDiskCache();
+
+    this.stats = {
+      totalHits: 0,
+      memoryHits: 0,
+      diskHits: 0,
+      misses: 0,
+      processed: 0,
+      singleFlightSaved: 0,
+      startedAt: Date.now()
+    };
+  }
+
+  _clearDiskCache() {
+    try {
+      const cacheDir = config.cache.dir;
+      if (!fs.existsSync(cacheDir)) return;
+
+      const subDirs = fs.readdirSync(cacheDir);
+      for (const subDir of subDirs) {
+        const subDirPath = path.join(cacheDir, subDir);
+        try {
+          const stat = fs.statSync(subDirPath);
+          if (stat.isDirectory()) {
+            const files = fs.readdirSync(subDirPath);
+            for (const file of files) {
+              try {
+                fs.unlinkSync(path.join(subDirPath, file));
+              } catch (e) {
+                // ignore
+              }
+            }
+            try {
+              fs.rmdirSync(subDirPath);
+            } catch (e) {
+              // ignore
+            }
+          }
+        } catch (e) {
+          // ignore
+        }
+      }
+    } catch (e) {
+      // ignore
+    }
   }
 }
 
