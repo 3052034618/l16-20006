@@ -5,6 +5,7 @@ const config = require('../config');
 const cache = require('../cache');
 const processor = require('../processor');
 const cacheKeyUtil = require('../cacheKey');
+const { verifySignMiddleware } = require('../signUrl');
 
 const router = express.Router();
 
@@ -20,6 +21,38 @@ function findOriginalFile(imageId) {
     }
   }
   return null;
+}
+
+function buildETag(cacheKeyHash) {
+  return `"${cacheKeyHash}"`;
+}
+
+function checkConditionalRequest(req, res, cacheKeyHash, lastModifiedMs) {
+  const ifNoneMatch = req.headers['if-none-match'];
+  const ifModifiedSince = req.headers['if-modified-since'];
+
+  const eTag = buildETag(cacheKeyHash);
+
+  if (ifNoneMatch && ifNoneMatch === eTag) {
+    res.setHeader('ETag', eTag);
+    if (lastModifiedMs) {
+      res.setHeader('Last-Modified', new Date(lastModifiedMs).toUTCString());
+    }
+    res.status(304).end();
+    return true;
+  }
+
+  if (ifModifiedSince && lastModifiedMs) {
+    const modifiedSinceTime = new Date(ifModifiedSince).getTime();
+    if (!isNaN(modifiedSinceTime) && lastModifiedMs <= modifiedSinceTime) {
+      res.setHeader('ETag', eTag);
+      res.setHeader('Last-Modified', new Date(lastModifiedMs).toUTCString());
+      res.status(304).end();
+      return true;
+    }
+  }
+
+  return false;
 }
 
 async function handleProcessRequest(req, res, next, extraParams = {}) {
@@ -52,6 +85,11 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
     const cacheKeyHash = cacheFileInfo.key;
     const cacheFilePath = cacheFileInfo.fullPath;
 
+    const diskMeta = cache.getDiskMeta(cacheKeyHash);
+    if (diskMeta && checkConditionalRequest(req, res, cacheKeyHash, diskMeta.createdAt)) {
+      return;
+    }
+
     const result = await cache.getOrProcess(
       cacheKeyHash,
       imageId,
@@ -63,8 +101,18 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
     );
 
     const mimeType = processor.getMimeType(outputFormat);
+    const eTag = buildETag(cacheKeyHash);
+
+    const meta = cache.getDiskMeta(cacheKeyHash);
+    const lastModified = meta && meta.createdAt ? meta.createdAt : Date.now();
+
+    if (checkConditionalRequest(req, res, cacheKeyHash, lastModified)) {
+      return;
+    }
 
     res.setHeader('Content-Type', mimeType);
+    res.setHeader('ETag', eTag);
+    res.setHeader('Last-Modified', new Date(lastModified).toUTCString());
     res.setHeader('X-Cache-Source', result.source);
     res.setHeader('X-Cache-Hit', result.fromCache ? 'true' : 'false');
 
@@ -89,6 +137,8 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
     next(err);
   }
 }
+
+router.use('/:id', verifySignMiddleware);
 
 router.get('/:id/thumbnail', (req, res, next) => {
   handleProcessRequest(req, res, next, { preset: 'thumbnail' });

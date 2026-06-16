@@ -30,6 +30,12 @@ const config = {
     defaultFontSize: 48,
     defaultOpacity: 0.5,
     defaultPosition: 'southeast'
+  },
+
+  security: {
+    signSecret: process.env.SIGN_SECRET || 'image-service-default-secret-key',
+    signEnabled: process.env.SIGN_ENABLED === 'true',
+    signExpireDefault: 3600
   }
 };
 

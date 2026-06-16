@@ -3,6 +3,7 @@ const config = require('./config');
 const imagesRoutes = require('./routes/images');
 const processRoutes = require('./routes/process');
 const cacheAdminRoutes = require('./routes/cacheAdmin');
+const { generateSignedUrl } = require('./signUrl');
 
 const app = express();
 
@@ -21,6 +22,32 @@ app.get('/health', (req, res) => {
     status: 'ok',
     uptime: process.uptime(),
     timestamp: Date.now()
+  });
+});
+
+app.post('/sign-url', (req, res) => {
+  const { imageId, params, expiresIn, baseUrl } = req.body || {};
+
+  if (!imageId) {
+    return res.status(400).json({
+      success: false,
+      error: 'imageId is required'
+    });
+  }
+
+  const url = generateSignedUrl(
+    baseUrl || `http://localhost:${config.port}`,
+    imageId,
+    params || {},
+    { expiresIn }
+  );
+
+  res.json({
+    success: true,
+    data: {
+      signedUrl: url,
+      signEnabled: config.security.signEnabled
+    }
   });
 });
 
