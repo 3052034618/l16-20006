@@ -106,8 +106,8 @@ class ImageCache {
                 this.cacheMeta.set(hash, {
                   format: ext,
                   size: fstat.size,
-                  createdAt: fstat.mtimeMs,
-                  lastAccess: fstat.atimeMs
+                  createdAt: Math.floor(fstat.mtimeMs / 1000) * 1000,
+                  lastAccess: Math.floor(fstat.atimeMs / 1000) * 1000
                 });
               }
 
@@ -220,7 +220,7 @@ class ImageCache {
   }
 
   _setCacheMeta(cacheKey, format, size) {
-    const now = Date.now();
+    const now = Math.floor(Date.now() / 1000) * 1000;
     const existing = this.cacheMeta.get(cacheKey);
     this.cacheMeta.set(cacheKey, {
       format,
@@ -307,6 +307,7 @@ class ImageCache {
         const result = await processFn();
         this.set(cacheKeyHash, result, imageId, cacheFilePath);
         this.stats.processed++;
+        this._saveIndexToDisk();
         return { data: result, fromCache: false, source: 'processed', cacheKey: cacheKeyHash };
       } finally {
         this.inFlight.delete(cacheKeyHash);

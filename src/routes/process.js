@@ -44,7 +44,8 @@ function checkConditionalRequest(req, res, cacheKeyHash, lastModifiedMs) {
 
   if (ifModifiedSince && lastModifiedMs) {
     const modifiedSinceTime = new Date(ifModifiedSince).getTime();
-    if (!isNaN(modifiedSinceTime) && lastModifiedMs <= modifiedSinceTime) {
+    const lastModifiedSec = Math.floor(lastModifiedMs / 1000) * 1000;
+    if (!isNaN(modifiedSinceTime) && lastModifiedSec <= modifiedSinceTime) {
       res.setHeader('ETag', eTag);
       res.setHeader('Last-Modified', new Date(lastModifiedMs).toUTCString());
       res.status(304).end();

@@ -26,7 +26,7 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/sign-url', (req, res) => {
-  const { imageId, params, expiresIn, baseUrl } = req.body || {};
+  const { imageId, params, expiresIn, baseUrl, suffix } = req.body || {};
 
   if (!imageId) {
     return res.status(400).json({
@@ -39,14 +39,15 @@ app.post('/sign-url', (req, res) => {
     baseUrl || `http://localhost:${config.port}`,
     imageId,
     params || {},
-    { expiresIn }
+    { expiresIn, suffix }
   );
 
   res.json({
     success: true,
     data: {
       signedUrl: url,
-      signEnabled: config.security.signEnabled
+      signEnabled: config.security.signEnabled,
+      suffix: suffix || null
     }
   });
 });

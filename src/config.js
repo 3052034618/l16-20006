@@ -34,7 +34,7 @@ const config = {
 
   security: {
     signSecret: process.env.SIGN_SECRET || 'image-service-default-secret-key',
-    signEnabled: process.env.SIGN_ENABLED === 'true',
+    signEnabled: true,
     signExpireDefault: 3600
   }
 };

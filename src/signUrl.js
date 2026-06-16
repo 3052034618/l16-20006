@@ -18,9 +18,10 @@ function generateSignedUrl(baseUrl, imageId, params, options = {}) {
   const secret = options.secret || config.security.signSecret;
   const expiresIn = options.expiresIn || config.security.signExpireDefault;
   const expires = Math.floor(Date.now() / 1000) + expiresIn;
+  const suffix = options.suffix || '';
 
   const fullParams = { ...params, expires };
-  const path = `/process/${imageId}`;
+  const path = suffix ? `/process/${imageId}/${suffix}` : `/process/${imageId}`;
   const sign = signUrl(path, fullParams, secret);
   fullParams.sign = sign;
 
@@ -46,17 +47,29 @@ function verifySignMiddleware(req, res, next) {
     });
   }
 
-  if (expires) {
-    const expireTime = parseInt(expires);
-    if (!isNaN(expireTime) && Math.floor(Date.now() / 1000) > expireTime) {
-      return res.status(410).json({
-        success: false,
-        error: 'URL has expired'
-      });
-    }
+  if (!expires) {
+    return res.status(403).json({
+      success: false,
+      error: 'Missing expires parameter. All signed URLs must include an expiration time.'
+    });
   }
 
-  const path = req.path.startsWith('/process') ? req.path : `/process/${req.params.id}`;
+  const expireTime = parseInt(expires);
+  if (isNaN(expireTime)) {
+    return res.status(403).json({
+      success: false,
+      error: 'Invalid expires parameter. Must be a Unix timestamp in seconds.'
+    });
+  }
+
+  if (Math.floor(Date.now() / 1000) > expireTime) {
+    return res.status(410).json({
+      success: false,
+      error: 'URL has expired'
+    });
+  }
+
+  const path = req.path;
   const expectedSign = signUrl(path, req.query);
 
   if (sign !== expectedSign) {
