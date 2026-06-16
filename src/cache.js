@@ -219,20 +219,28 @@ class ImageCache {
     this._dirty = true;
   }
 
-  _setCacheMeta(cacheKey, format, size) {
+  _setCacheMeta(cacheKey, format, size, params) {
     const now = Math.floor(Date.now() / 1000) * 1000;
     const existing = this.cacheMeta.get(cacheKey);
     this.cacheMeta.set(cacheKey, {
       format,
       size,
+      accessCount: existing ? (existing.accessCount || 0) + 1 : 1,
       createdAt: existing ? existing.createdAt : now,
-      lastAccess: now
+      lastAccess: now,
+      params: existing ? (existing.params || null) : (params || null)
     });
     this._dirty = true;
   }
 
   get(cacheKeyHash) {
     if (this.memoryCache.has(cacheKeyHash)) {
+      const existing = this.cacheMeta.get(cacheKeyHash);
+      if (existing) {
+        existing.accessCount = (existing.accessCount || 0) + 1;
+        existing.lastAccess = Math.floor(Date.now() / 1000) * 1000;
+        this._dirty = true;
+      }
       return this.memoryCache.get(cacheKeyHash);
     }
     return null;
@@ -262,7 +270,7 @@ class ImageCache {
     return this.cacheMeta.get(cacheKeyHash) || null;
   }
 
-  set(cacheKeyHash, data, imageId, cacheFilePath) {
+  set(cacheKeyHash, data, imageId, cacheFilePath, params) {
     const format = path.extname(cacheFilePath).slice(1);
 
     if (cacheFilePath) {
@@ -272,13 +280,13 @@ class ImageCache {
       }
       fs.writeFileSync(cacheFilePath, data);
       this._addToImageIndex(cacheKeyHash, imageId);
-      this._setCacheMeta(cacheKeyHash, format, data.length);
+      this._setCacheMeta(cacheKeyHash, format, data.length, params);
     }
 
     this.memoryCache.set(cacheKeyHash, { buffer: data, timestamp: Date.now() });
   }
 
-  async getOrProcess(cacheKeyHash, imageId, cacheFilePath, processFn) {
+  async getOrProcess(cacheKeyHash, imageId, cacheFilePath, processFn, params) {
     const memCached = this.get(cacheKeyHash);
     if (memCached) {
       this.stats.memoryHits++;
@@ -305,7 +313,7 @@ class ImageCache {
     const promise = (async () => {
       try {
         const result = await processFn();
-        this.set(cacheKeyHash, result, imageId, cacheFilePath);
+        this.set(cacheKeyHash, result, imageId, cacheFilePath, params);
         this.stats.processed++;
         this._saveIndexToDisk();
         return { data: result, fromCache: false, source: 'processed', cacheKey: cacheKeyHash };
@@ -508,24 +516,29 @@ class ImageCache {
         hasCachedVariants: false,
         variantCount: 0,
         totalSizeBytes: 0,
+        totalAccessCount: 0,
         variants: []
       };
     }
 
     const variants = [];
     let totalSize = 0;
+    let totalAccess = 0;
 
     for (const key of keys) {
       const meta = this.cacheMeta.get(key);
       if (meta) {
         totalSize += meta.size || 0;
+        totalAccess += meta.accessCount || 0;
         variants.push({
           key,
           format: meta.format,
           sizeBytes: meta.size,
           sizeKB: ((meta.size || 0) / 1024).toFixed(2),
+          accessCount: meta.accessCount || 0,
           createdAt: meta.createdAt ? new Date(meta.createdAt).toISOString() : null,
-          lastAccess: meta.lastAccess ? new Date(meta.lastAccess).toISOString() : null
+          lastAccess: meta.lastAccess ? new Date(meta.lastAccess).toISOString() : null,
+          params: meta.params || null
         });
       } else {
         variants.push({
@@ -533,13 +546,15 @@ class ImageCache {
           format: 'unknown',
           sizeBytes: 0,
           sizeKB: '0.00',
+          accessCount: 0,
           createdAt: null,
-          lastAccess: null
+          lastAccess: null,
+          params: null
         });
       }
     }
 
-    variants.sort((a, b) => b.sizeBytes - a.sizeBytes);
+    variants.sort((a, b) => b.accessCount - a.accessCount);
 
     return {
       imageId,
@@ -548,6 +563,7 @@ class ImageCache {
       totalSizeBytes: totalSize,
       totalSizeKB: (totalSize / 1024).toFixed(2),
       totalSizeMB: (totalSize / (1024 * 1024)).toFixed(3),
+      totalAccessCount: totalAccess,
       variants
     };
   }

@@ -1,5 +1,6 @@
 const express = require('express');
 const cache = require('../cache');
+const audit = require('../audit');
 
 const router = express.Router();
 
@@ -116,6 +117,25 @@ router.get('/images/ranking', (req, res) => {
       totalImages: stats.disk.imageCount,
       totalVariants: stats.disk.itemCount
     }
+  });
+});
+
+router.get('/audit/logs', (req, res) => {
+  const { limit, imageId, statusCode, cacheSource, path } = req.query;
+  const limitNum = limit ? parseInt(limit) : 100;
+  const result = audit.getLogs(limitNum, { imageId, statusCode, cacheSource, path });
+
+  res.json({
+    success: true,
+    data: result
+  });
+});
+
+router.get('/audit/stats', (req, res) => {
+  const stats = audit.getStats();
+  res.json({
+    success: true,
+    data: stats
   });
 });
 

@@ -36,6 +36,11 @@ const config = {
     signSecret: process.env.SIGN_SECRET || 'image-service-default-secret-key',
     signEnabled: true,
     signExpireDefault: 3600
+  },
+
+  rateLimit: {
+    windowMs: 60 * 1000,
+    maxPerWindow: 30
   }
 };
 

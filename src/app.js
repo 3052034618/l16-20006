@@ -26,7 +26,7 @@ app.get('/health', (req, res) => {
 });
 
 app.post('/sign-url', (req, res) => {
-  const { imageId, params, expiresIn, baseUrl, suffix } = req.body || {};
+  const { imageId, params, expiresIn, baseUrl } = req.body || {};
 
   if (!imageId) {
     return res.status(400).json({
@@ -35,19 +35,25 @@ app.post('/sign-url', (req, res) => {
     });
   }
 
-  const url = generateSignedUrl(
-    baseUrl || `http://localhost:${config.port}`,
-    imageId,
-    params || {},
-    { expiresIn, suffix }
-  );
+  const base = baseUrl || `http://localhost:${config.port}`;
+  const procParams = params || {};
+  const opts = { expiresIn };
+
+  const processUrl = generateSignedUrl(base, imageId, procParams, opts);
+  const thumbnailUrl = generateSignedUrl(base, imageId, {}, { ...opts, suffix: 'thumbnail' });
+  const infoUrl = generateSignedUrl(base, imageId, {}, { ...opts, suffix: 'info' });
+  const presetsUrl = generateSignedUrl(base, imageId, {}, { ...opts, suffix: 'presets' });
 
   res.json({
     success: true,
     data: {
-      signedUrl: url,
       signEnabled: config.security.signEnabled,
-      suffix: suffix || null
+      urls: {
+        process: processUrl,
+        thumbnail: thumbnailUrl,
+        info: infoUrl,
+        presets: presetsUrl
+      }
     }
   });
 });

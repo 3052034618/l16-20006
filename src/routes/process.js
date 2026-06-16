@@ -6,6 +6,8 @@ const cache = require('../cache');
 const processor = require('../processor');
 const cacheKeyUtil = require('../cacheKey');
 const { verifySignMiddleware } = require('../signUrl');
+const audit = require('../audit');
+const rateLimiter = require('../rateLimiter');
 
 const router = express.Router();
 
@@ -95,10 +97,11 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
       cacheKeyHash,
       imageId,
       cacheFilePath,
-      async () => {
+      rateLimiter.wrapProcessFn(req, async () => {
         const processed = await processor.processImage(originalFilePath, params);
         return processed.buffer;
-      }
+      }),
+      effectiveParams
     );
 
     const mimeType = processor.getMimeType(outputFormat);
@@ -129,6 +132,19 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
 
     return res.send(result.data);
   } catch (err) {
+    if (err.statusCode === 429) {
+      if (err.rateLimit) {
+        res.setHeader('X-RateLimit-Limit', err.rateLimit.limit);
+        res.setHeader('X-RateLimit-Remaining', 0);
+        res.setHeader('X-RateLimit-Reset', Math.floor(new Date(err.rateLimit.resetAt).getTime() / 1000));
+      }
+      return res.status(429).json({
+        success: false,
+        error: 'Too many processing requests. Please try again later.',
+        rateLimit: err.rateLimit
+      });
+    }
+
     if (err.message && err.message.includes('Input image exceeds')) {
       return res.status(413).json({
         success: false,
@@ -139,7 +155,8 @@ async function handleProcessRequest(req, res, next, extraParams = {}) {
   }
 }
 
-router.use('/:id', verifySignMiddleware);
+router.use(audit.createMiddleware());
+router.use(verifySignMiddleware);
 
 router.get('/:id/thumbnail', (req, res, next) => {
   handleProcessRequest(req, res, next, { preset: 'thumbnail' });

@@ -69,8 +69,8 @@ function verifySignMiddleware(req, res, next) {
     });
   }
 
-  const path = req.path;
-  const expectedSign = signUrl(path, req.query);
+  const fullPath = (req.baseUrl || '') + req.path;
+  const expectedSign = signUrl(fullPath, req.query);
 
   if (sign !== expectedSign) {
     return res.status(403).json({
